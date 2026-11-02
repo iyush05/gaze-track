@@ -202,6 +202,20 @@ Fine-tune the MPIIFaceGaze model on MPIIFaceGaze + one own session (oversampled 
 - Open: fewer calibration points with a personal model (uncalibrated error is already ~4°);
   per-session geometry bias (user position / camera offset estimation).
 
+### Capacity test: does a bigger backbone help? (in progress)
+Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (held-out p00–p02).
+| backbone | best epoch (val-selected) | mean of last 5 epochs | ONNX CPU batch-1 |
+|---|---|---|---|
+| MobileNetV4-small | 5.08° | 5.57° | 1.15 ms |
+| ResNet-18 | 4.11° (epoch 3) | 5.47° | 4.4 ms idle |
+- The val-selected "best" is optimistic (val swings up to 2° between epochs); averaged, the larger
+  model is only ~0.1° better on unseen MPII people. Pending: personalized folds on s01 sessions
+  (the decision criterion), then decide on a Kaggle teacher + distillation.
+- RepViT-M0.9 is unusable in this setup: eval-mode predictions collapse (19.9° vs 8.9° with batch
+  statistics on the same weights; val 22° → 42° while train loss fell). BatchNorm recalibration only
+  partly helps (12.2°). MobileNetV4 was checked for the same issue and is fine (its eval/train gap
+  5.37° vs 4.40° is per-person batch-statistics adaptation; recalibration doesn't improve it).
+
 ### Phase 4: Personalization & geometry refinement
 - Calibration-fitted adapter (affine / ~1k-param MLP); target ≤2–2.5° post-calibration.
 
