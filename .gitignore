@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+/profiles/
+/runs/
+/config.json
+models/*.task
+models/*.tflite
+/data/
+.DS_Store
+runs_*.log
