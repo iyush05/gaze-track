@@ -202,15 +202,26 @@ Fine-tune the MPIIFaceGaze model on MPIIFaceGaze + one own session (oversampled 
 - Open: fewer calibration points with a personal model (uncalibrated error is already ~4°);
   per-session geometry bias (user position / camera offset estimation).
 
-### Capacity test: does a bigger backbone help? (in progress)
+### Capacity test: does a bigger backbone help? ✅ no (for now)
 Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (held-out p00–p02).
 | backbone | best epoch (val-selected) | mean of last 5 epochs | ONNX CPU batch-1 |
 |---|---|---|---|
 | MobileNetV4-small | 5.08° | 5.57° | 1.15 ms |
 | ResNet-18 | 4.11° (epoch 3) | 5.47° | 4.4 ms idle |
 - The val-selected "best" is optimistic (val swings up to 2° between epochs); averaged, the larger
-  model is only ~0.1° better on unseen MPII people. Pending: personalized folds on s01 sessions
-  (the decision criterion), then decide on a Kaggle teacher + distillation.
+  model is only ~0.1° better on unseen MPII people.
+- **Decision criterion: personalized folds on s01** (same protocol as Phase 4a; fused + veto,
+  calibration on the held-out session's own dots):
+  | held-out session | raw error MNV4 / R18 | fused error MNV4 / R18 | off-screen F1 | honest flags |
+  |---|---|---|---|---|
+  | no glasses (fold A) | 3.80° / **2.68°** | 2.58° / **2.07°** | 1.00 / 1.00 | 0 / 0 |
+  | glasses (fold B) | **4.78°** / 5.89° | **1.49°** / 1.81° | 0.88 / 0.88 | 0 / 0 |
+  | mean | 4.29° / 4.29° | 2.04° / 1.94° | | |
+- **Conclusion: model capacity is not the bottleneck.** ResNet-18 wins one fold and loses the other;
+  the mean difference (0.1°) is within noise for 2 folds of one person, detection is identical, and
+  it costs ~4× CPU latency (can't run live within 10 ms). A capacity-only Kaggle teacher is not
+  justified. Still untested: a teacher on *more diverse data* (ETH-XGaze), which targets a different
+  weakness (eye-only gaze, head/gaze decorrelation) than capacity does.
 - RepViT-M0.9 is unusable in this setup: eval-mode predictions collapse (19.9° vs 8.9° with batch
   statistics on the same weights; val 22° → 42° while train loss fell). BatchNorm recalibration only
   partly helps (12.2°). MobileNetV4 was checked for the same issue and is fine (its eval/train gap
