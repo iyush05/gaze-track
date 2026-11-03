@@ -140,37 +140,13 @@ def _timeline_svg(frames: list[dict], events: list, t0: float, dur: float, truth
     return "".join(parts)
 
 
-def build_report(session_path: str | Path, out: str | Path | None = None, model: str | None = None,
-                 base: Config | None = None, max_events: int = 60, profile: str | None = None) -> Path:
-    """profile: calibration profile name/path; default = calibrate from the session's own dots."""
-    base = base or Config()
-    s = load_session(session_path)
-    setup = _replay_setup(s, base, profile, True, model, bool(model))
-    rows = [r for r in s.rows if r["segment"] != "calib"] or list(s.rows)
-    frames: list[dict] = []
-
-    def on_frame(r, res):
-        q = getattr(res, "quality", None)
-        frames.append({"t": float(r["t"]), "frame": int(r["frame"]), "zone": res.zone.value,
-                       "quality": q.status if q is not None else "ok"})
-
-    events, zones = _replay(s, rows, *setup, on_frame=on_frame, quality=True)
-    flags = [e for e in events if e.severity != "info"]
-    t0, t1 = frames[0]["t"], frames[-1]["t"]
-    dur = max(t1 - t0, 1e-6)
-    ts = np.array([f["t"] for f in frames])
-
-    def frame_at(t: float) -> dict:
-        return frames[int(np.clip(np.searchsorted(ts, t), 0, len(frames) - 1))]
-
-    # Ground truth (scripted behaviour / guided sessions), to let a reviewer check the system.
-    truth = None
-    if s.meta.get("kind") == "behavior":
-        truth = []
-        for tid in sorted({int(r["trial_id"]) for r in rows if r["segment"] == "behavior"}):
-            rr = [r for r in rows if r["segment"] == "behavior" and int(r["trial_id"]) == tid]
-            truth.append((float(rr[0]["t"]), float(rr[-1]["t"]), str(rr[0]["zone_gt"]).lower(), rr[0]["task"]))
-
+def _render(*, name: str, subtitle: str, estimator: str, frames: list[dict], flags: list, truth,
+            cal_stats: dict, snapshots, max_events: int = 60) -> str:
+    """HTML for a review report. frames: [{t, zone, quality}], flags: warning/alert Events,
+    snapshots(incident_flags, start_t, end_t) → [(t, zone, data_url)] (≤ 4)."""
+    zones = Counter(f["zone"] for f in frames)
+    t0 = frames[0]["t"]
+    dur = max(frames[-1]["t"] - t0, 1e-6)
     n = max(1, sum(zones.values()))
     zone_rows = "".join(
         f'<tr><td><span class="sw" style="background:{ZONE_COLORS.get(z, "#999")}"></span>'
@@ -180,8 +156,7 @@ def build_report(session_path: str | Path, out: str | Path | None = None, model:
     unknown = 100 * zones.get("UNKNOWN", 0) / n
     kinds = Counter(e.kind for e in flags)
     sev = Counter(e.severity for e in flags)
-    cal = setup[1].stats
-    estimator = ("fused (" + Path(model).parent.name + ")") if model else "feature mapper (Phase 0)"
+    cal = cal_stats
 
     breaks = [frames[i + 1]["t"] for i in range(len(frames) - 1) if frames[i + 1]["t"] - frames[i]["t"] > 2.0]
     incidents = group_incidents(flags, breaks=breaks)
@@ -191,15 +166,10 @@ def build_report(session_path: str | Path, out: str | Path | None = None, model:
         sev_max = "alert" if any(e.severity == "alert" for e in inc) else "warning"
         a = min(e.t - (e.duration_s or 0.0) for e in inc)
         b = max(e.t for e in inc)
-        # Snapshots: start of the incident, then each flag's moment (max 4 pictures).
-        moments = [a] + [e.t for e in inc]
-        moments = sorted(set(round(m, 1) for m in moments))
-        if len(moments) > 4:
-            moments = [moments[int(i)] for i in np.linspace(0, len(moments) - 1, 4)]
         imgs = "".join(
-            f'<figure><img src="{_thumb(s.frame_path(f["frame"]))}" alt="camera frame at {_fmt_t(f["t"] - t0)}" '
-            f'loading="lazy"><figcaption>{_fmt_t(f["t"] - t0)} · {html.escape(ZONE_TEXT.get(f["zone"], f["zone"]))}'
-            f'</figcaption></figure>' for f in (frame_at(m) for m in moments))
+            f'<figure><img src="{src}" alt="camera frame at {_fmt_t(t - t0)}" '
+            f'loading="lazy"><figcaption>{_fmt_t(t - t0)} · {html.escape(ZONE_TEXT.get(z, z))}'
+            f'</figcaption></figure>' for t, z, src in snapshots(inc, a, b))
         items = []
         for e in inc:
             bits = [_fmt_t(e.t - t0), html.escape(KIND_TEXT.get(e.kind, e.kind))]
@@ -231,7 +201,7 @@ def build_report(session_path: str | Path, out: str | Path | None = None, model:
             if len(incidents) > max_events else "")
     no_flags = '<p class="ok-note">No warnings or alerts in this session.</p>' if not flags else ""
 
-    title = f"Review: {s.dir.name}"
+    title = f"Review: {name}"
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
@@ -274,8 +244,7 @@ button {{ font:inherit; padding:7px 12px; border-radius:6px; border:1px solid va
 .ok-note {{ background:var(--card); border:1px solid var(--line); padding:12px 14px; border-radius:8px; }}
 </style></head><body><main>
 <h1>{html.escape(title)}</h1>
-<p class="muted">Subject {html.escape(str(s.subject))} · recorded {html.escape(str(s.meta.get("created", "")))} ·
-glasses {html.escape(str(s.meta.get("glasses", "?")))} · {_fmt_t(dur)} reviewed · estimator: {html.escape(estimator)} ·
+<p class="muted">{html.escape(subtitle)} · {_fmt_t(dur)} reviewed · estimator: {html.escape(estimator)} ·
 report generated {time.strftime("%Y-%m-%d %H:%M")}</p>
 <div class="notice">These are <b>signals for human review, not verdicts.</b> Each flag shows what the camera saw; please
 judge every flag yourself. Natural behaviour (thinking, typing, brief glances) is expected and is not flagged by design.</div>
@@ -309,7 +278,7 @@ Generated locally by gaze-track; nothing was uploaded.</p>
 </main>
 <script>
 (() => {{
-  const KEY = "gaze-track-review:" + {json.dumps(s.dir.name)};
+  const KEY = "gaze-track-review:" + {json.dumps(name)};
   let state = {{}};
   try {{ state = JSON.parse(localStorage.getItem(KEY) || "{{}}"); }} catch (e) {{ state = {{}}; }}
   const save = () => {{
@@ -327,19 +296,104 @@ Generated locally by gaze-track; nothing was uploaded.</p>
     note.addEventListener("input", () => {{ state[k] = {{...(state[k] || {{}}), note: note.value}}; save(); }});
   }});
   document.getElementById("dl").addEventListener("click", () => {{
-    const data = {{session: {json.dumps(s.dir.name)}, reviewed_at: new Date().toISOString(), incidents: {json.dumps(
+    const data = {{session: {json.dumps(name)}, reviewed_at: new Date().toISOString(), incidents: {json.dumps(
         [{"incident": k + 1, "start_s": round(min(e.t - (e.duration_s or 0.0) for e in inc) - t0, 1),
           "end_s": round(max(e.t for e in inc) - t0, 1), "flags": [e.kind for e in inc]} for k, inc in enumerate(incidents)])}
       .map((inc, i) => ({{...inc, ...(state[i] || {{}})}}))}};
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {{type: "application/json"}}));
-    a.download = {json.dumps(s.dir.name + "_review.json")};
+    a.download = {json.dumps(name + "_review.json")};
     a.click();
   }});
 }})();
 </script>
 </body></html>"""
+    return doc
+
+
+def build_report(session_path: str | Path, out: str | Path | None = None, model: str | None = None,
+                 base: Config | None = None, max_events: int = 60, profile: str | None = None) -> Path:
+    """profile: calibration profile name/path; default = calibrate from the session's own dots."""
+    base = base or Config()
+    s = load_session(session_path)
+    setup = _replay_setup(s, base, profile, True, model, bool(model))
+    rows = [r for r in s.rows if r["segment"] != "calib"] or list(s.rows)
+    frames: list[dict] = []
+
+    def on_frame(r, res):
+        q = getattr(res, "quality", None)
+        frames.append({"t": float(r["t"]), "frame": int(r["frame"]), "zone": res.zone.value,
+                       "quality": q.status if q is not None else "ok"})
+
+    events, _ = _replay(s, rows, *setup, on_frame=on_frame, quality=True)
+    flags = [e for e in events if e.severity != "info"]
+    ts = np.array([f["t"] for f in frames])
+
+    def frame_at(t: float) -> dict:
+        return frames[int(np.clip(np.searchsorted(ts, t), 0, len(frames) - 1))]
+
+    # Ground truth (scripted behaviour / guided sessions), to let a reviewer check the system.
+    truth = None
+    if s.meta.get("kind") == "behavior":
+        truth = []
+        for tid in sorted({int(r["trial_id"]) for r in rows if r["segment"] == "behavior"}):
+            rr = [r for r in rows if r["segment"] == "behavior" and int(r["trial_id"]) == tid]
+            truth.append((float(rr[0]["t"]), float(rr[-1]["t"]), str(rr[0]["zone_gt"]).lower(), rr[0]["task"]))
+
+    def snapshots(inc, a, b):
+        # Start of the incident, then each flag's moment (max 4 pictures).
+        moments = sorted(set(round(m, 1) for m in [a] + [e.t for e in inc]))
+        if len(moments) > 4:
+            moments = [moments[int(i)] for i in np.linspace(0, len(moments) - 1, 4)]
+        return [(f["t"], f["zone"], _thumb(s.frame_path(f["frame"]))) for f in (frame_at(m) for m in moments)]
+
+    doc = _render(
+        name=s.dir.name,
+        subtitle=f"Subject {s.subject} · recorded {s.meta.get('created', '')} · glasses {s.meta.get('glasses', '?')}",
+        estimator=("fused (" + Path(model).parent.name + ")") if model else "feature mapper (Phase 0)",
+        frames=frames, flags=flags, truth=truth, cal_stats=setup[1].stats, snapshots=snapshots,
+        max_events=max_events)
     out = Path(out) if out else s.dir / "report.html"
+    out.write_text(doc)
+    return out
+
+
+def build_report_from_bundle(bundle: str | Path, out: str | Path | None = None, max_events: int = 60) -> Path:
+    """Review report for a live-session evidence bundle (see evidence.py)."""
+    from .events import Event
+    from .evidence import load_bundle
+
+    bundle = Path(bundle)
+    meta, frames, evs = load_bundle(bundle)
+    if not frames:
+        raise SystemExit(f"{bundle}: empty timeline")
+    flags, shots_of = [], {}
+    for d in evs:
+        e = Event(d["t"], d["kind"], d["severity"], d.get("duration_s", 0.0), d.get("yaw_deg"), d.get("pitch_deg"),
+                  d.get("detail", ""))
+        flags.append(e)
+        shots_of[id(e)] = d.get("snapshots", [])
+
+    def snapshots(inc, a, b):
+        seen, out_ = {}, []
+        for e in inc:
+            for sh in shots_of[id(e)]:
+                seen.setdefault(sh["file"], sh)
+        items = sorted(seen.values(), key=lambda x: x["t"])
+        if len(items) > 4:
+            items = [items[int(i)] for i in np.linspace(0, len(items) - 1, 4)]
+        for sh in items:
+            out_.append((sh["t"], sh["zone"], _thumb(bundle / sh["file"])))
+        return out_
+
+    estimator = meta.get("estimator", "?")
+    doc = _render(
+        name=bundle.name,
+        subtitle=f"Live session · profile {meta.get('profile', '?')} · started {meta.get('started', '?')}",
+        estimator=estimator, frames=frames, flags=flags, truth=None,
+        cal_stats={"lopo_mean_err_deg": meta.get("calibration_err_deg", float("nan"))},
+        snapshots=snapshots, max_events=max_events)
+    out = Path(out) if out else bundle / "report.html"
     out.write_text(doc)
     return out
 
@@ -349,14 +403,19 @@ def cmd_report(args) -> None:
     from .cli import resolve_model
 
     model = resolve_model(args.model) if args.model else None
+    from .evidence import is_bundle
+
     for sp in args.sessions:
-        p = build_report(sp, model=model, base=base, profile=args.profile,
-                         out=(Path(args.out) / f"{Path(sp).name}.html") if args.out else None)
+        out = (Path(args.out) / f"{Path(sp).name}.html") if args.out else None
+        if is_bundle(sp):  # live-session evidence bundle
+            p = build_report_from_bundle(sp, out=out)
+        else:  # recorded session (replayed)
+            p = build_report(sp, model=model, base=base, profile=args.profile, out=out)
         print(f"report → {p}")
 
 
 def add_parser(sub) -> None:
-    c = sub.add_parser("report", help="HTML review report (timeline + snapshots per flag) for recorded sessions")
+    c = sub.add_parser("report", help="HTML review report for recorded sessions or live evidence bundles")
     c.add_argument("sessions", nargs="+")
     c.add_argument("--model", default=None, help="learned checkpoint → use the fused estimator")
     c.add_argument("--out", default=None, help="folder for the reports (default: inside each session folder)")

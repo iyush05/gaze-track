@@ -311,8 +311,12 @@ Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (hel
 - Each incident: flag list with plain-language direction ("down-right"), 4 mirrored snapshots
   (start + each flag moment), and Confirmed / Dismissed / Unsure + note, kept in the browser and
   downloadable as JSON (the human makes the final call; the decision is recorded).
-- Open: live `run` doesn't save frames yet, so reports exist only for recorded sessions; an
-  evidence-capture mode for live exams (save snapshots around flags only) is the next step.
+- **Evidence mode for live exams** (`run --evidence`): the last ~15 s of 320-px frames are kept in
+  memory only; when a warning/alert fires, 3 snapshots (episode start, middle, flag moment) are
+  written with the event; a per-frame timeline (zone, quality; no images) is written continuously;
+  everything is flushed as it happens and finalized on Ctrl+C / closed terminal.
+  `report <bundle>` renders the same review report. Simulated on behaviour session 3: same 12 flags
+  → 3 incidents; **36 snapshots (432 KB) vs 2,875 frames (~120 MB)** for a full recording.
 
 ### Phase 6: Hardening
 - Robustness: glasses, low light, backlight, skin tones, movement. Uncertainty gating → `UNKNOWN`.

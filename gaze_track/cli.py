@@ -272,6 +272,21 @@ def cmd_run(args) -> None:
     reader = FrameReader(cap, max_width=cfg.frame_width)
 
     rec_f = rec_w = ev_f = None
+    evidence = None
+    if args.evidence is not None:
+        from .collect import _save_on_terminate
+        from .evidence import EvidenceRecorder
+
+        _save_on_terminate()  # closing the terminal still finalizes the evidence bundle
+
+        ev_dir = Path(args.evidence) if args.evidence else Path("runs/evidence") / (
+            f"{args.profile or 'default'}_{time.strftime('%Y%m%d_%H%M%S')}")
+        fus = pipe.fusion is not None
+        evidence = EvidenceRecorder(ev_dir, {
+            "profile": args.profile, "estimator": "fused" if fus else "feature mapper (Phase 0)",
+            "calibration_err_deg": ((pipe.fusion.stats if fus else mapper.stats).get("lopo_mean_err_deg")),
+            "zones": vars(cfg.zones), "events": vars(cfg.events)})
+        print(f"Evidence mode: snapshots around flags only → {ev_dir}")
     if args.record:
         Path(args.record).parent.mkdir(parents=True, exist_ok=True)
         rec_f = open(args.record, "w", newline="")
@@ -300,6 +315,8 @@ def cmd_run(args) -> None:
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - last, 1e-6))
             last = now
 
+            if evidence is not None:
+                evidence.on_frame(frame, r)
             for e in r.events:
                 recent.append(e)
                 if e.severity != "info":
@@ -329,6 +346,9 @@ def cmd_run(args) -> None:
             rec_f.close()
         if ev_f:
             ev_f.close()
+        if evidence is not None:
+            evidence.close(duration_s=time.monotonic() - t0)
+            print(f"Evidence saved → {evidence.dir}   (review: uv run python -m gaze_track report {evidence.dir})")
         if not args.no_ui:
             cv2.destroyAllWindows()
     if lat:
@@ -440,6 +460,9 @@ def main(argv=None) -> None:
     c.add_argument("--no-ui", action="store_true")
     c.add_argument("--duration", type=float, default=0.0, help="seconds (headless mode only)")
     c.add_argument("--no-fusion", action="store_true", help="ignore the profile's fused estimator")
+    c.add_argument("--evidence", nargs="?", const="", default=None,
+                   help="save snapshots around flags (no continuous video) to this folder "
+                        "(default: runs/evidence/<profile>_<time>); review with `report`")
     c.set_defaults(fn=cmd_run)
 
     c = sub.add_parser("bench", help="per-stage latency benchmark")

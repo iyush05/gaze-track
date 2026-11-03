@@ -256,3 +256,33 @@ def test_report_end_to_end_faceless_session(tmp_path):
     assert 'data:image/jpeg;base64,' in doc  # snapshots embedded (self-contained file)
     assert 'id="dl"' in doc and 'type="radio"' in doc  # reviewer decisions + download
     assert "signals for human review, not verdicts" in doc
+
+
+def test_evidence_recorder_saves_snapshots_only_around_flags(tmp_path):
+    from gaze_track.events import Event
+    from gaze_track.evidence import EvidenceRecorder, is_bundle, load_bundle
+    from gaze_track.pipeline import FrameResult
+    from gaze_track.report import build_report_from_bundle
+    from gaze_track.zones import Zone
+
+    rec = EvidenceRecorder(tmp_path / "ev", {"profile": "p", "estimator": "x"}, buffer_s=5.0, snap_fps=10)
+    frame = np.random.default_rng(0).integers(0, 255, (480, 640, 3), dtype=np.uint8)
+    for i in range(300):  # 10 s at 30 fps, one warning at t = 8 s lasting 3 s
+        t = i / 30
+        evs = [Event(t, "sustained_off_screen", "warning", 3.0, -30.0, 5.0)] if i == 240 else []
+        if i == 100:
+            evs.append(Event(t, "brief_glance", "info", 0.5))  # info → no snapshots
+        rec.on_frame(frame, FrameResult(t, Zone.FAR_OFF if i >= 150 else Zone.ON_SCREEN, Zone.ON_SCREEN, 1,
+                                        events=evs))
+        # In-memory buffer stays bounded (pruned at each 0.1 s snapshot → ≤ buffer_s + one period).
+        assert all(t - b[0] <= 5.0 + 0.1 + 1e-9 for b in rec._buf)
+    rec.close(duration_s=10.0)
+    meta, frames, events = load_bundle(tmp_path / "ev")
+    assert is_bundle(tmp_path / "ev") and len(frames) == 300 and meta["flags"] == 1
+    assert len(events) == 1 and events[0]["kind"] == "sustained_off_screen"
+    shots = events[0]["snapshots"]
+    assert len(shots) == 3 and [s["t"] for s in shots] == sorted(s["t"] for s in shots)
+    assert abs(shots[0]["t"] - 5.0) < 0.15 and abs(shots[-1]["t"] - 8.0) < 0.15  # start … flag moment
+    assert len(list((tmp_path / "ev" / "snapshots").iterdir())) == 3  # nothing else written
+    doc = build_report_from_bundle(tmp_path / "ev").read_text()
+    assert "Incident 1" in doc and doc.count("data:image/jpeg") == 3 and "Live session" in doc

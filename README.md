@@ -32,6 +32,14 @@ uv run python -m gaze_track eval                      # all sessions in data/own
 uv run python -m gaze_track export --preview          # normalized patches → data/normalized
 ```
 
+## Live exam with evidence + review (Phase 6)
+```bash
+uv run python -m gaze_track run --profile me --evidence        # snapshots only around flags
+uv run python -m gaze_track report runs/evidence/<bundle>      # HTML review report (offline)
+uv run python -m gaze_track report data/own/<session>          # same report for a recorded session
+uv run python -m gaze_track robustness data/own/<guided session> --gate   # image-degradation stress test
+```
+
 ## Learned + fused estimator (Phase 2)
 ```bash
 uv run python -m gaze_track prepare-mpii                                  # MPIIFaceGaze → normalized patches
