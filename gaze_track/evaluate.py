@@ -28,8 +28,8 @@ from .config import Config, ScreenGeometry
 from .data.session import Session, load_session
 from .metrics import angular_error_deg, binary_report, per_hour, summarize, zone_report
 from .features import GazeFeatures
-from .pipeline import VETO_ZONES, Pipeline, eye_closed_threshold, gate_zone, gaze_zone
-from .zones import Zone
+from .pipeline import Pipeline, eye_closed_threshold, gate_zone, gaze_zone
+from .zones import OFF_ZONES, Zone
 
 ZONE_LABELS = ["ON_SCREEN", "EDGE", "NEAR_OFF", "FAR_OFF", "DOWN_KEYBOARD", "EYES_CLOSED", "NO_FACE",
                "MULTI_FACE", "UNKNOWN"]
@@ -215,10 +215,10 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
             zone = pre.value
         else:
             z, uv = gaze_zone(cfg, ft, yaw, pitch, origin, neutral, current=None)
-            if fused is not None and z not in VETO_ZONES:
-                # Same off-screen veto as the live pipeline (see Pipeline.step).
+            if fused is not None and z not in OFF_ZONES:
+                # Same veto as the live pipeline (see Pipeline.step): off-screen > keyboard > on-screen.
                 zb, _ = gaze_zone(cfg, ft, *mapper.predict(ft.vector()), ft.origin_cm, neutral, current=None)
-                if zb in VETO_ZONES:
+                if zb in OFF_ZONES or (zb == Zone.DOWN_KEYBOARD and z != Zone.DOWN_KEYBOARD):
                     z = zb
             zone = z.value
             if r["segment"] == "screen":

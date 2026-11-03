@@ -96,3 +96,32 @@ def test_multi_face_count_gates_to_multi_face():
     for i in range(20):
         r = pipe.step(feats, 2, i / 30)
     assert r.zone == Zone.MULTI_FACE
+
+
+def test_offscreen_veto_outranks_keyboard():
+    """Fused gaze says 'keyboard' but the mapper sees gaze far below the keyboard band (phone in
+    lap) → report off-screen (s01 behaviour session 2 was missed before this rule)."""
+    cfg = Config()
+    pipe = Pipeline(cfg, landmarker=False)
+    feats = GazeFeatures(head_yaw=0, head_pitch=0, head_roll=0, eye_h=0.0, eye_v=0.4, ear=0.3,
+                         origin_cm=np.array([0.0, 8.0, 50.0]), face_width_px=200)
+    assert pipe.mapper.predict(feats.vector())[1] > 45  # mapper: steeply down (lap)
+    for i in range(20):  # fused: ~10° below the bottom edge → keyboard band
+        r = pipe.step(feats, 1, i / 30, gaze=(0.0, 23.0, feats.origin_cm))
+    assert r.raw_zone in (Zone.NEAR_OFF, Zone.FAR_OFF)
+
+
+def test_keyboard_band_limit():
+    from gaze_track.calibration import target_angles
+    from gaze_track.zones import classify_point
+
+    cfg = Config()
+    eye = np.array([0.0, 8.0, 40.0])
+    _, bottom = target_angles(cfg.screen, eye, cfg.screen.width_cm / 2, cfg.screen.height_cm)
+    from gaze_track.calibration import project_to_screen
+
+    for below, want in [(15.0, Zone.DOWN_KEYBOARD), (35.0, None)]:
+        pitch = bottom + below
+        uv = project_to_screen(cfg.screen, eye, 0.0, pitch)
+        z = classify_point(uv, pitch, eye, 0, 0, cfg.screen, cfg.zones)
+        assert (z == want) if want else (z in (Zone.NEAR_OFF, Zone.FAR_OFF))

@@ -13,10 +13,9 @@ from .events import Event, EventEngine
 from .features import GazeFeatures, extract
 from .filters import OneEuro
 from .landmarks import FaceLandmarkerWrapper, LandmarkResult
-from .zones import Zone, ZoneSmoother, classify_point
+from .zones import OFF_ZONES, Zone, ZoneSmoother, classify_point
 
 MIN_FACE_WIDTH_PX = 60.0
-VETO_ZONES = {Zone.NEAR_OFF, Zone.FAR_OFF, Zone.DOWN_KEYBOARD}
 MAX_ROLL_DEG = 35.0
 
 
@@ -203,11 +202,13 @@ class Pipeline:
                 # Off-screen veto: the fused blend is fitted on on-screen dots and compresses gaze far
                 # outside the screen (s01: off-screen recall 0.63 fused vs 0.81 mapper). If the feature
                 # mapper alone says off-screen / keyboard, trust it.
+                # Priority: off-screen > keyboard > on-screen. The learned model also flattens steep
+                # downward gaze, so a phone in the lap read as "keyboard" (s01 behaviour session 2).
                 by, bp = self.mapper.predict(feats.vector())
                 by, bp = self.fb_yaw(by, t), self.fb_pitch(bp, t)
-                if raw not in VETO_ZONES:
+                if raw not in OFF_ZONES:
                     zb, uvb = gaze_zone(self.cfg, feats, by, bp, origin, neutral, self.smoother.current)
-                    if zb in VETO_ZONES:
+                    if zb in OFF_ZONES or (zb == Zone.DOWN_KEYBOARD and raw != Zone.DOWN_KEYBOARD):
                         raw, uv, yaw, pitch = zb, uvb, by, bp
         if n_faces == 0:
             self.f_yaw.reset()

@@ -50,7 +50,10 @@ class ZoneThresholds:
     edge_deg: float = 6.0
     top_extra_deg: float = 10.0  # extra tolerance above the screen (looking up = thinking)
     near_off_cm: float = 20.0  # beyond the edge band up to this distance → NEAR_OFF
-    keyboard_band_cm: float = 25.0  # below screen bottom, within this → DOWN_KEYBOARD
+    keyboard_band_cm: float = 25.0  # (unused; kept for config compatibility)
+    # Gaze up to this angle below the screen's bottom edge = keyboard (allowed). s01: keyboard looks
+    # and typing never exceeded 22°, a phone held in the lap was at 34–38° (median) → 25°.
+    keyboard_pitch_deg: float = 25.0
     keyboard_side_slack_cm: float = 3.0  # horizontal slack for the keyboard zone
     far_head_yaw_deg: float = 40.0  # |head yaw| beyond this → FAR_OFF regardless of gaze
     far_head_pitch_deg: float = 35.0
@@ -67,7 +70,9 @@ class EventThresholds:
     sustained_off_s: float = 3.0
     repeated_window_s: float = 60.0
     repeated_min_count: int = 3
-    repeated_direction_deg: float = 30.0  # glances within this angular spread = "same direction"
+    # Glances within this angular distance count as "the same spot". 30° merged up-left and up-right
+    # thinking glances into one pattern (false flag in s01's honest_thinking segment).
+    repeated_direction_deg: float = 15.0
     face_absent_s: float = 2.0
     multi_face_s: float = 0.5
     eyes_closed_s: float = 2.0

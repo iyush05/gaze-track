@@ -25,8 +25,6 @@ class Zone(str, Enum):
 
 OFF_ZONES = {Zone.NEAR_OFF, Zone.FAR_OFF}
 
-# How far below the bottom edge (in gaze pitch) still counts as "looking at the keyboard".
-KEYBOARD_PITCH_DEG = 35.0
 
 
 def classify_point(
@@ -71,7 +69,7 @@ def classify_point(
     # keyboard lies in front of the screen plane, not on it).
     if s > edge and v > H and -th.keyboard_side_slack_cm <= u <= W + th.keyboard_side_slack_cm:
         _, bottom_pitch = target_angles(screen, origin_cm, min(max(u, 0.0), W), H)
-        if gaze_pitch_deg - bottom_pitch <= KEYBOARD_PITCH_DEG:
+        if gaze_pitch_deg - bottom_pitch <= th.keyboard_pitch_deg:
             return Zone.DOWN_KEYBOARD
 
     # Boundaries between ranked zones ON(0) | EDGE(1) | NEAR_OFF(2) | FAR_OFF(3).

@@ -230,6 +230,30 @@ Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (hel
 ### Phase 4: Personalization & geometry refinement
 - Calibration-fitted adapter (affine / ~1k-param MLP); target ≤2–2.5° post-calibration.
 
+### Phase 5a: behaviour data + event-layer baseline ✅
+- `collect-behavior`: 9-dot calibration, then 6 scripted ~30–40 s segments with segment labels:
+  honest reading / typing / thinking; cheating: notes beside the screen, phone in lap, asking a
+  person beside. `eval` on such a session → per segment: flagged?, time to first flag, flag kinds.
+- s01, 2 sessions (glasses, notes on the left), rules engine:
+  | | before fixes (baseline / fused) | after fixes (baseline / fused) |
+  |---|---|---|
+  | cheating segments flagged | 5/6 / 4/6 | **5/6 / 5/6** |
+  | honest segments falsely flagged | 1/6 / 1/6 | **0/6 / 0/6** |
+  | honest 10-min session | 0 flags | 0 flags |
+  | guided sessions zone F1 / off-screen F1 | — | unchanged |
+- Fixes (each traced to a failure in the data):
+  1. Keyboard band 35° → **25°** below the screen bottom: keyboard looks/typing never exceeded 22°,
+     a phone in the lap was at 34–38° (median) and was being read as "keyboard".
+  2. Repeated-glance "same spot" 30° → **15°**: up-left and up-right thinking glances were merged
+     into one pattern (honest_thinking false flag).
+  3. Veto priority off-screen > keyboard > on-screen: the learned model flattens steep downward
+     gaze, so the fused estimate called the lap "keyboard".
+- Remaining miss: notes placed close beside the screen (session 1): glance yaw ≤ 19.5°, inside the
+  range of honest gaze (thinking reached 24°) → not separable by direction at current accuracy;
+  this is the case a learned temporal model (frequency/rhythm of glances) would have to address.
+- Caveat: thresholds were chosen on the same 2 sessions they're evaluated on (1 person); needs
+  held-out behaviour sessions (other side, other people) before trusting the rates.
+
 ### Phase 5: Learned temporal model
 - Tiny GRU/TCN over 2–5 s windows on [gaze xy, head pose, uncertainty, eye state, zone];
   off-screen direction clustering for repeated-glance detection.
