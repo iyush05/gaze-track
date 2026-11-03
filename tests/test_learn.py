@@ -74,7 +74,7 @@ def test_train_smoke_on_synthetic_data(tmp_path):
                  head=rng.uniform(-0.3, 0.3, (n, 2)).astype(np.float32), R=np.zeros((n, 3, 3), np.float32),
                  face_center=np.zeros((n, 3), np.float32), zone=np.array([""] * n), segment=np.array(["m"] * n),
                  task=np.array(["s"] * n), trial_id=np.zeros(n, np.int32), frame=np.arange(n), subject=subj)
-    args = SimpleNamespace(seed=0, device="cpu", data=[str(d)], val=["p00"], limit=None, backbone="mobileone_s0",
+    args = SimpleNamespace(seed=0, device="cpu", data=[str(d)], val=["p00"], limit=None, backbone="mobilenetv4_conv_small",
                            no_pretrained=True, lr=1e-3, batch=32, epochs=1, out=str(tmp_path / "runs"))
     out = train(args)
     assert (out / "best.pt").exists() and (out / "summary.json").exists()

@@ -25,10 +25,14 @@ jobs:
       - name: Download MediaPipe models (checksum-verified)
         run: uv run python -m gaze_track download-models --no-gaze
 
-      - name: Run tests
-        # One OpenMP thread: PyTorch's OpenMP runtime aborted during backward on Linux after MediaPipe /
-        # OpenCV / ONNX Runtime had loaded their own threading libraries in the same pytest process.
+      # The training tests run in their own process: the tiny training test intermittently aborted inside
+      # PyTorch's CPU backward on Linux runners when it shared a process with the MediaPipe / OpenCV tests.
+      - name: Run model training tests
         env:
           OMP_NUM_THREADS: "1"
-          MKL_NUM_THREADS: "1"
-        run: uv run pytest -q
+        run: uv run pytest -q tests/test_learn.py
+
+      - name: Run remaining tests
+        env:
+          OMP_NUM_THREADS: "1"
+        run: uv run pytest -q --ignore=tests/test_learn.py
