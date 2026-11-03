@@ -31,20 +31,20 @@ All numbers come from one test subject so far; see [Limitations](#limitations).
 
 ```mermaid
 flowchart TD
-    A[Webcam frame<br/>640×480, 30 fps] --> B[MediaPipe Face Landmarker<br/>478 landmarks + head pose]
-    A --> C[BlazeFace face counter<br/>every 3rd frame, worker thread]
-    B --> Q[Quality gate<br/>face too dark / blurry → UNKNOWN]
-    B --> G[Geometric estimate<br/>head pose + iris offset,<br/>ridge calibration toward a physical prior]
-    B --> L[Learned estimate<br/>normalized face → MobileNetV4 ONNX,<br/>personalized + affine calibration]
-    G --> F[Fusion + veto<br/>ridge blend; off-screen &gt; keyboard &gt; screen]
+    A["Webcam frame<br/>640×480, 30 fps"] --> B["MediaPipe Face Landmarker<br/>478 landmarks + head pose"]
+    A --> C["BlazeFace face counter<br/>every 3rd frame, worker thread"]
+    B --> Q["Quality gate<br/>face too dark / blurry → UNKNOWN"]
+    B --> G["Geometric estimate<br/>head pose + iris offset,<br/>ridge calibration toward a physical prior"]
+    B --> L["Learned estimate<br/>normalized face → MobileNetV4 ONNX,<br/>personalized + affine calibration"]
+    G --> F["Fusion + veto<br/>ridge blend; off-screen > keyboard > screen"]
     L --> F
-    F --> Z[Screen zones<br/>gaze ray ∩ screen plane in cm, 6° edge band, hysteresis]
+    F --> Z["Screen zones<br/>gaze ray ∩ screen plane in cm, 6° edge band, hysteresis"]
     Q --> Z
     C -->|second person| Z
-    Z --> E[Event rules<br/>looked away, repeated glances, head turns,<br/>face absent, two faces, tracking unreliable]
-    E --> O[Live overlay]
-    E --> V[Evidence bundle<br/>snapshots only around flags]
-    V --> R[HTML review report<br/>incidents, snapshots, human decision]
+    Z --> E["Event rules<br/>looked away, repeated glances, head turns,<br/>face absent, two faces, tracking unreliable"]
+    E --> O["Live overlay"]
+    E --> V["Evidence bundle<br/>snapshots only around flags"]
+    V --> R["HTML review report<br/>incidents, snapshots, human decision"]
 ```
 
 1. **Geometric baseline.** Head pose and the iris position inside each eye are mapped to gaze angles by a per-user
