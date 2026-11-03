@@ -10,3 +10,4 @@ models/*.tflite
 /data/
 .DS_Store
 runs_*.log
+/models/gaze/

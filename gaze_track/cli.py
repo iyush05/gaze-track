@@ -88,9 +88,12 @@ def resolve_model(spec: str | None) -> str | None:
     if not spec:
         return None
     if spec == "latest":
+        # Your own trained models first (newest), then the released model from `download-models`.
         runs = sorted(Path("runs/train").glob("*/best.pt"), key=lambda p: p.stat().st_mtime)
+        runs = runs or sorted(Path("models/gaze").glob("*/best.pt"), key=lambda p: p.stat().st_mtime)
         if not runs:
-            sys.exit("No trained model in runs/train. Train one with `train` or drop --model.")
+            sys.exit("No gaze model found. Run `uv run python -m gaze_track download-models` "
+                     "(or train one with `train`), or drop --model.")
         return str(runs[-1])
     if not Path(spec).exists():
         sys.exit(f"Model not found: {spec}")
@@ -473,12 +476,13 @@ def main(argv=None) -> None:
     c.add_argument("--session", default=None, help="replay a recorded session's frames instead of the camera")
     c.set_defaults(fn=cmd_bench)
 
-    from . import collect, evaluate, report, robustness
+    from . import collect, download, evaluate, report, robustness
     from .data import export, mpiifacegaze
 
     collect.add_parsers(sub)
     evaluate.add_parser(sub)
     robustness.add_parser(sub)
+    download.add_parser(sub)
     report.add_parser(sub)
     export.add_parser(sub)
     mpiifacegaze.add_parser(sub)

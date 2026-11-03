@@ -286,3 +286,20 @@ def test_evidence_recorder_saves_snapshots_only_around_flags(tmp_path):
     assert len(list((tmp_path / "ev" / "snapshots").iterdir())) == 3  # nothing else written
     doc = build_report_from_bundle(tmp_path / "ev").read_text()
     assert "Incident 1" in doc and doc.count("data:image/jpeg") == 3 and "Live session" in doc
+
+
+def test_download_verifies_checksums(tmp_path):
+    import hashlib
+
+    from gaze_track.download import Asset, ensure
+
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"model-bytes")
+    good = hashlib.sha256(b"model-bytes").hexdigest()
+    dest = tmp_path / "models" / "m.bin"
+    assert ensure(Asset(dest, good, url=src.as_uri())) == "downloaded" and dest.read_bytes() == b"model-bytes"
+    assert ensure(Asset(dest, good, url=src.as_uri())) == "ok"  # present and valid → no download
+    bad = tmp_path / "models" / "bad.bin"
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        ensure(Asset(bad, "0" * 64, url=src.as_uri()))
+    assert not bad.exists() and not list((tmp_path / "models").glob("*.part"))  # nothing half-written kept
