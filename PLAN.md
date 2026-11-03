@@ -251,8 +251,22 @@ Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (hel
 - Remaining miss: notes placed close beside the screen (session 1): glance yaw ≤ 19.5°, inside the
   range of honest gaze (thinking reached 24°) → not separable by direction at current accuracy;
   this is the case a learned temporal model (frequency/rhythm of glances) would have to address.
-- Caveat: thresholds were chosen on the same 2 sessions they're evaluated on (1 person); needs
-  held-out behaviour sessions (other side, other people) before trusting the rates.
+- Held-out session 3 (no glasses, notes on the **right**; recorded after the fixes): cheating 3/3,
+  but honest_thinking falsely flagged (3.1 s look up-right) and the lap phone caught only as
+  "eyes closed" (without glasses, looking down lowers the lids: EAR 0.16× baseline; keyboard 0.44×,
+  51 % of keyboard frames read as closed). Second round of fixes (data across all 3 sessions):
+  4. Eyes-closed threshold 0.45 → **0.25** × baseline EAR (truly closed ≈ 0.06×).
+  5. Low EAR + head pitched down > 6° vs neutral = **looking down → off-screen**, not eyes closed
+     (lap +9.1/+9.6°, keyboard/typing −1.4…−3.0°).
+  6. **Head-turn events**: head > 25° from neutral for ≥ 1.5 s → warning, 2 within 60 s → alert
+     (thinking ≤ 4.7°, asking someone 33–50° but only 1.1–3.1 s per turn).
+  7. Looking clearly **up** with the head forward needs 8 s (not 3 s) to count as sustained
+     (both thinking false flags were upward looks).
+- **Current (all 3 sessions, baseline and fused identical):** cheating 8/9 segments, honest 0/9,
+  median time to first flag 5–6.5 s, honest 10-min session 0 flags; no-glasses guided zone F1
+  0.806 → 0.875, others unchanged. Remaining miss: notes right beside the screen (session 1).
+- Caveat: session 3 was held out for the first fixes but informed the second round; all from 1
+  person. Next held-out check: new sessions (other person, other lighting).
 
 ### Phase 5: Learned temporal model
 - Tiny GRU/TCN over 2–5 s windows on [gaze xy, head pose, uncertainty, eye state, zone];

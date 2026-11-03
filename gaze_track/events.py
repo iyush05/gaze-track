@@ -57,9 +57,17 @@ class EventEngine:
         self._closed: _Episode | None = None
         self._glances: deque[tuple[float, float, float]] = deque()  # (t_end, yaw, pitch)
         self._last_repeat_alert = -1e9
+        self._turn: _Episode | None = None
+        self._turns: deque[float] = deque()
+        self._last_turn_alert = -1e9
+        self._head_yaw: float | None = None
 
-    def update(self, t: float, zone: Zone, yaw: float | None, pitch: float | None) -> list[Event]:
+    def update(self, t: float, zone: Zone, yaw: float | None, pitch: float | None,
+               head_yaw: float | None = None) -> list[Event]:
+        """head_yaw: head yaw relative to the user's neutral pose (degrees), if known."""
         out: list[Event] = []
+        self._head_yaw = head_yaw
+        out += self._track_head_turn(t, head_yaw)
         out += self._track_off(t, zone, yaw, pitch)
         self._absent, ev = self._track_state(
             t, zone == Zone.NO_FACE, self._absent, self.th.face_absent_s, "face_absent", "alert"
@@ -84,7 +92,11 @@ class EventEngine:
             self._off.last_off = t
             self._off.add(yaw, pitch)
             dur = t - self._off.start
-            if not self._off.flagged and dur >= self.th.sustained_off_s:
+            _, p = self._off.direction()
+            head_forward = self._head_yaw is None or abs(self._head_yaw) < self.th.head_turn_deg
+            looking_up = p is not None and p < self.th.up_pitch_deg and head_forward
+            limit = self.th.sustained_up_s if looking_up else self.th.sustained_off_s
+            if not self._off.flagged and dur >= limit:
                 self._off.flagged = True
                 y, p = self._off.direction()
                 out.append(Event(t, "sustained_off_screen", "warning", dur, y, p))
@@ -121,6 +133,29 @@ class EventEngine:
                     detail=f"{len(similar)} glances toward the same spot in {self.th.repeated_window_s:.0f}s",
                 )
             )
+        return out
+
+    # ------------------------------------------------------------------ head turned to the side
+    def _track_head_turn(self, t: float, head_yaw: float | None) -> list[Event]:
+        out: list[Event] = []
+        if head_yaw is not None and abs(head_yaw) > self.th.head_turn_deg:
+            if self._turn is None:
+                self._turn = _Episode(start=t)
+            self._turn.add(head_yaw, 0.0)
+            dur = t - self._turn.start
+            if not self._turn.flagged and dur >= self.th.head_turn_s:
+                self._turn.flagged = True
+                y, _ = self._turn.direction()
+                out.append(Event(t, "head_turned_away", "warning", dur, y, None))
+                self._turns.append(t)
+                while self._turns and t - self._turns[0] > self.th.repeated_window_s:
+                    self._turns.popleft()
+                if len(self._turns) >= self.th.head_turn_repeat and t - self._last_turn_alert > self.th.repeated_window_s:
+                    self._last_turn_alert = t
+                    out.append(Event(t, "repeated_head_turns", "alert", dur, y, None,
+                                     detail=f"{len(self._turns)} head turns in {self.th.repeated_window_s:.0f}s"))
+            return out
+        self._turn = None
         return out
 
     # ------------------------------------------------------------------ generic duration state

@@ -276,3 +276,40 @@ def test_16_point_calibration_reaches_close_to_edges():
     xs = sorted({p[0] for p in pts})
     assert xs[0] == pytest.approx(0.04) and xs[-1] == pytest.approx(0.96)
     assert calibration_targets(9)[0][0] == pytest.approx(0.08)  # collect protocol unchanged
+
+
+def test_head_turn_events():
+    from gaze_track.events import EventEngine
+
+    th = EventThresholds()
+    eng = EventEngine(th)
+    ev, t = [], 0.0
+
+    def run(secs, head_yaw, zone=Zone.ON_SCREEN):
+        nonlocal t
+        for _ in range(int(secs * 30)):
+            ev.extend(eng.update(t, zone, 0.0, 10.0, head_yaw))
+            t += 1 / 30
+
+    run(2.0, 2.0)
+    run(1.0, 35.0, Zone.FAR_OFF)  # too short → nothing
+    run(2.0, 2.0)
+    run(2.0, 40.0, Zone.FAR_OFF)  # ≥1.5 s → warning
+    run(3.0, 2.0)
+    run(2.0, -38.0, Zone.FAR_OFF)  # second turn within 60 s → alert
+    run(1.0, 2.0)
+    kinds = [e.kind for e in ev if e.severity != "info"]
+    assert kinds.count("head_turned_away") == 2 and kinds.count("repeated_head_turns") == 1
+
+
+def test_upward_look_needs_longer_unless_head_turned():
+    from gaze_track.events import EventEngine
+
+    th = EventThresholds()
+    up = th.up_pitch_deg - 10
+    eng = EventEngine(th)
+    ev = [e for i in range(int(5 * 30)) for e in eng.update(i / 30, Zone.FAR_OFF, 0.0, up, 2.0)]
+    assert not [e for e in ev if e.kind == "sustained_off_screen"]  # 5 s looking up, head forward
+    eng = EventEngine(th)
+    ev = [e for i in range(int(5 * 30)) for e in eng.update(i / 30, Zone.FAR_OFF, 0.0, up, 35.0)]
+    assert [e for e in ev if e.kind == "sustained_off_screen"]  # same, but head turned → flagged

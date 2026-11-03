@@ -67,8 +67,9 @@ def eye_closed_threshold(cfg: Config, ear_baseline: float | None) -> float:
     return cfg.zones.eye_closed_ratio
 
 
-def gate_zone(cfg: Config, feats: GazeFeatures | None, n_faces: int, ear_baseline: float | None = None) -> Zone | None:
-    """Zones decided before any gaze estimate: face count, unusable face, closed eyes.
+def gate_zone(cfg: Config, feats: GazeFeatures | None, n_faces: int, ear_baseline: float | None = None,
+              neutral_pitch: float = 0.0) -> Zone | None:
+    """Zones decided before any gaze estimate: face count, unusable face, closed eyes / looking down.
     Returns None when the frame should go on to gaze estimation."""
     if n_faces == 0:
         return Zone.NO_FACE
@@ -78,6 +79,10 @@ def gate_zone(cfg: Config, feats: GazeFeatures | None, n_faces: int, ear_baselin
     if feats.face_width_px < MIN_FACE_WIDTH_PX or abs(feats.head_roll) > MAX_ROLL_DEG:
         return Zone.UNKNOWN
     if feats.ear < eye_closed_threshold(cfg, ear_baseline):
+        # Lids low with the head tilted down = looking down past the keyboard (lap, desk), where the
+        # iris is hidden so gaze can't be estimated; truly closed eyes keep a neutral head pitch.
+        if feats.head_pitch - neutral_pitch > cfg.zones.look_down_head_pitch_deg:
+            return Zone.FAR_OFF
         return Zone.EYES_CLOSED
     return None
 
@@ -184,7 +189,7 @@ class Pipeline:
 
         yaw = pitch = None
         uv = None
-        pre = gate_zone(self.cfg, feats, n_faces, self.mapper.stats.get("ear_baseline"))
+        pre = gate_zone(self.cfg, feats, n_faces, self.mapper.stats.get("ear_baseline"), self.neutral_pitch)
         if pre is not None:
             raw = pre
         else:
@@ -215,7 +220,8 @@ class Pipeline:
             self.f_pitch.reset()
 
         zone = self.smoother.update(raw, t)
-        evs = self.events.update(t, zone, yaw, pitch)
+        head_yaw = (feats.head_yaw - self.neutral_yaw) if (feats is not None and n_faces == 1) else None
+        evs = self.events.update(t, zone, yaw, pitch, head_yaw)
         tm = {"gaze+zone+events": (time.perf_counter() - t2) * 1e3}
         return FrameResult(t, zone, raw, n_faces, feats, yaw, pitch, uv, evs, tm)
 

@@ -196,7 +196,7 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
         r, ft = f["row"], f["feats"]
         if r["segment"] not in ("screen", "off"):
             continue
-        pre = gate_zone(cfg, ft, f["n_faces"], mapper.stats.get("ear_baseline"))
+        pre = gate_zone(cfg, ft, f["n_faces"], mapper.stats.get("ear_baseline"), neutral[1])
         uv = None
         origin = ft.origin_cm if ft is not None else None
         if pre is None and fused is not None:

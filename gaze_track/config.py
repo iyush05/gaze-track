@@ -58,7 +58,13 @@ class ZoneThresholds:
     far_head_yaw_deg: float = 40.0  # |head yaw| beyond this → FAR_OFF regardless of gaze
     far_head_pitch_deg: float = 35.0
     eye_closed_ratio: float = 0.17  # eye aspect ratio below this → closed (no calibration baseline)
-    eye_closed_rel: float = 0.45  # with a calibration baseline: closed below this × baseline EAR
+    # With a calibration baseline: closed below this × baseline EAR. s01: truly closed ≈ 0.06×, but
+    # without glasses looking down at the keyboard lowers the lids to ≈ 0.44× (51 % of keyboard
+    # frames were "closed" at 0.45) → 0.25.
+    eye_closed_rel: float = 0.25
+    # Low EAR *and* head pitched down this far (vs neutral) = looking down (lap/desk), not closed
+    # eyes → treated as off-screen. s01: phone in lap +9.1/+9.6°, keyboard/typing −1.4…−3.0°.
+    look_down_head_pitch_deg: float = 6.0
     min_dwell_s: float = 0.15  # hysteresis: a zone must persist this long before switching
     hysteresis_cm: float = 1.2  # spatial hysteresis: extra distance needed to leave current zone
 
@@ -68,6 +74,15 @@ class EventThresholds:
     brief_glance_max_s: float = 1.5
     merge_gap_s: float = 0.5  # an off-screen glance only ends after this long back on screen
     sustained_off_s: float = 3.0
+    # Looking clearly *up* (pitch below this, i.e. above the screen) is mostly thinking: both s01
+    # honest_thinking false flags were upward looks; notes/phones sit beside or below the screen.
+    up_pitch_deg: float = -15.0
+    sustained_up_s: float = 8.0
+    # Head turned to the side (vs neutral): the clearest cheating cue, independent of eye tracking.
+    # s01: honest thinking ≤ 4.7°, turning to ask someone 33–50° but only 1.1–3.1 s per turn.
+    head_turn_deg: float = 25.0
+    head_turn_s: float = 1.5
+    head_turn_repeat: int = 2  # this many turns within repeated_window_s → alert
     repeated_window_s: float = 60.0
     repeated_min_count: int = 3
     # Glances within this angular distance count as "the same spot". 30° merged up-left and up-right
