@@ -210,3 +210,49 @@ def test_behavior_eval_per_segment(tmp_path):
     for g in rep["segments"]:
         assert g["flag_kinds"] == {"face_absent": 1}
         assert cfg.events.face_absent_s - 0.2 <= g["first_flag_s"] <= cfg.events.face_absent_s + 0.3
+
+
+def test_group_incidents_gap_cap_and_breaks():
+    from gaze_track.events import Event
+    from gaze_track.report import group_incidents
+
+    ev = lambda t, d=3.0: Event(t, "sustained_off_screen", "warning", d)  # noqa: E731
+    flags = [ev(10), ev(18), ev(26), ev(60), ev(64)]
+    assert [len(g) for g in group_incidents(flags)] == [3, 2]  # 60-3 - 26 > 10 s → new incident
+    dense = [ev(t) for t in range(10, 120, 8)]  # continuous flags every 8 s
+    groups = group_incidents(dense)
+    assert all(max(e.t for e in g) - min(e.t - 3 for e in g) <= 60 for g in groups) and len(groups) >= 2
+    assert [len(g) for g in group_incidents([ev(10), ev(16)], breaks=[14.0])] == [1, 1]
+
+
+def test_describe_direction():
+    from gaze_track.report import describe_direction
+
+    assert describe_direction(20, 0) == "left" and describe_direction(-20, 15) == "down-right"
+    assert describe_direction(0, -20) == "up" and describe_direction(2, 2) == "straight ahead"
+
+
+def test_report_end_to_end_faceless_session(tmp_path):
+    """Faceless frames → 'face not visible' alerts → incidents with snapshots and decision controls."""
+    from gaze_track.calibration import GazeMapper
+    from gaze_track.report import build_report
+
+    from dataclasses import asdict
+
+    cfg = Config()
+    meta = {"kind": "honest", "subject": "t", "screen": asdict(cfg.screen), "zones": asdict(cfg.zones), "camera": {}}
+    w = SessionWriter(tmp_path / "h", meta)
+    img = np.random.default_rng(0).integers(0, 255, (48, 64, 3), dtype=np.uint8)
+    for i in range(50):  # 5 s at 10 fps without a face → one "face not visible" alert after 2 s
+        w.add(img, {"t": i / 10, "trial_id": 0, "segment": "honest", "task": "work", "zone_gt": "", "n_faces": 0},
+              None, None)
+    w.write_json("trials.json", [])
+    w.close()
+    prof = tmp_path / "p.json"
+    GazeMapper(calibrated=True).save(prof)
+    out = build_report(tmp_path / "h", out=tmp_path / "r.html", profile=str(prof))
+    doc = out.read_text()
+    assert "Face not visible" in doc and "Incident 1" in doc
+    assert 'data:image/jpeg;base64,' in doc  # snapshots embedded (self-contained file)
+    assert 'id="dl"' in doc and 'type="radio"' in doc  # reviewer decisions + download
+    assert "signals for human review, not verdicts" in doc

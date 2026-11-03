@@ -317,9 +317,18 @@ def _replay_setup(s: Session, base: Config, profile, fast, model, fuse):
     return cfg, mapper, fast, preds, lcal, fused, stored
 
 
-def _replay(s: Session, rows: list[dict], cfg, mapper, fast, preds, lcal, fused, stored):
-    """Full live pipeline (smoothing, hysteresis, events) over `rows` → (events, zone counter)."""
+def _replay(s: Session, rows: list[dict], cfg, mapper, fast, preds, lcal, fused, stored, on_frame=None,
+            quality: bool = False):
+    """Full live pipeline (smoothing, hysteresis, events) over `rows` → (events, zone counter).
+    on_frame(row, FrameResult) is called for every frame; quality=True also applies image-quality
+    gating in fast mode (reads each frame + its stored landmarks)."""
     pipe = Pipeline(cfg, mapper, landmarker=not fast)
+    L = None
+    if quality and fast:
+        from .quality import QualityMonitor
+
+        qm = QualityMonitor(cfg.zones)
+        L = s.arrays()["landmarks"].astype(np.float32)
     events, zones = [], Counter()
     for r in rows:
         if fast:
@@ -333,7 +342,15 @@ def _replay(s: Session, rows: list[dict], cfg, mapper, fast, preds, lcal, fused,
                 p = preds.get(int(r["frame"]))
                 if p is not None:
                     gaze = (*lcal.apply(p[0], p[1]), p[2])
-            res = pipe.step(f["feats"], f["n_faces"], float(r["t"]), gaze=gaze)
+            unusable, q = False, None
+            if L is not None and f["n_faces"] == 1 and not np.isnan(L[int(r["frame"])]).any():
+                img = cv2.imread(str(s.frame_path(r["frame"])))
+                if img is not None:
+                    q = qm.update(img, L[int(r["frame"])])
+                    unusable = q.unusable
+            res = pipe.step(f["feats"], f["n_faces"], float(r["t"]), gaze=None if unusable else gaze,
+                            unusable=unusable)
+            res.quality = q
         else:
             img = cv2.imread(str(s.frame_path(r["frame"])))
             if img is None:
@@ -341,6 +358,8 @@ def _replay(s: Session, rows: list[dict], cfg, mapper, fast, preds, lcal, fused,
             res = pipe.process(img, float(r["t"]))
         zones[res.zone.value] += 1
         events += res.events
+        if on_frame is not None:
+            on_frame(r, res)
     pipe.close()
     return events, zones
 

@@ -301,6 +301,19 @@ Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (hel
 - Open: JPEG/compression detection (only if frames are streamed), real dim-room validation,
   review report for human reviewers, an intermittent test failure seen once (not reproduced in 9 runs).
 
+### Phase 6b: review report for human reviewers ✅
+- `report <session>`: one self-contained HTML file (snapshots embedded, works offline, nothing
+  uploaded) with a "signals, not verdicts" notice, summary (incidents, flags, % not judged,
+  calibration error, image conditions, time per zone), a zone timeline with flag markers (plus the
+  recorded honest/cheating segments for scripted sessions), and one card per **incident**.
+- Incidents: flags < 10 s apart, max 60 s, split at recording breaks. s01 session 3 went from 12
+  flag cards to 3 incident cards, one per cheating segment; honest 10-min session: 0 incidents.
+- Each incident: flag list with plain-language direction ("down-right"), 4 mirrored snapshots
+  (start + each flag moment), and Confirmed / Dismissed / Unsure + note, kept in the browser and
+  downloadable as JSON (the human makes the final call; the decision is recorded).
+- Open: live `run` doesn't save frames yet, so reports exist only for recorded sessions; an
+  evidence-capture mode for live exams (save snapshots around flags only) is the next step.
+
 ### Phase 6: Hardening
 - Robustness: glasses, low light, backlight, skin tones, movement. Uncertainty gating → `UNKNOWN`.
 - Fairness & accessibility review; human-in-the-loop for all flags; on-device only.
