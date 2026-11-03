@@ -14,13 +14,18 @@ from gaze_track.learn.model import GazeNet, reparameterize  # noqa: E402
 
 
 def test_model_forward_shapes_and_reparam_equivalence():
-    m = GazeNet("mobileone_s0", pretrained=False).eval()
-    x = torch.randint(0, 255, (2, 112, 112, 3), dtype=torch.uint8)
-    with torch.no_grad():
-        a = m(x)
-        b = reparameterize(m)(x)
-    assert a.shape == (2, 4)
-    assert torch.allclose(a, b, atol=1e-3)  # reparameterization must not change outputs
+    # Seeded: unseeded random weights made this fail ~10% of runs (fixed absolute tolerance vs
+    # outputs of ~1e15 from an untrained MobileOne). Fusion must match to float precision, relatively.
+    for seed in range(5):
+        torch.manual_seed(seed)
+        m = GazeNet("mobileone_s0", pretrained=False).eval()
+        x = torch.randint(0, 255, (2, 112, 112, 3), dtype=torch.uint8)
+        fused = reparameterize(m)
+        assert fused is not m  # fusion was accepted, not silently skipped
+        with torch.no_grad():
+            a, b = m(x), fused(x)
+        assert a.shape == (2, 4)
+        assert float((a - b).abs().max()) <= 1e-4 * float(a.abs().max())
 
 
 def test_flip_augmentation_negates_yaw_only():

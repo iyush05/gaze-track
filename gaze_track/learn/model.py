@@ -48,8 +48,11 @@ def reparameterize(model: GazeNet) -> GazeNet:
         fused = reparameterize_model(copy.deepcopy(model))
         x = torch.randint(0, 255, (2, 112, 112, 3), dtype=torch.uint8, device=next(model.parameters()).device)
         with torch.no_grad():
-            if torch.allclose(model(x), fused(x), atol=1e-3):
-                return fused
+            ref, out = model(x), fused(x)
+        # Relative to the output scale: an untrained MobileOne outputs ~1e15, where fusion's float
+        # rounding (~1e-7 relative) exceeds any fixed absolute tolerance.
+        if float((ref - out).abs().max()) <= 1e-4 * max(1.0, float(ref.abs().max())):
+            return fused
     except Exception:
         pass
     return model
