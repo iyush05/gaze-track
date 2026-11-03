@@ -272,6 +272,35 @@ Question: is a Kaggle-trained large model worth it? Same MPIIFaceGaze split (hel
 - Tiny GRU/TCN over 2–5 s windows on [gaze xy, head pose, uncertainty, eye state, zone];
   off-screen direction clustering for repeated-glance detection.
 
+### Phase 6a: robustness stress test + image-quality gating ✅
+- `robustness`: re-runs the full pipeline (MediaPipe, features, learned model) on guided sessions
+  with deterministic degradations; nothing from the clean frames is reused.
+- Baseline estimator, glasses / no-glasses (face found in 100 % of frames under *every* condition,
+  so failures are silent):
+  | condition | gaze error | off-screen recall | verdict |
+  |---|---|---|---|
+  | clean | 3.15° / 3.84° | 0.82 / 0.96 | — |
+  | overexposed, noise, 320×240 | ≈ clean | ≈ clean | harmless |
+  | dim, backlit | +0.5–0.9° | −0.01–0.09 | mild |
+  | **blur** | 4.70° / 4.13° | 0.68 / 0.80 | harmful |
+  | **JPEG q10** | 7.34° / 5.22° | 0.73 / 0.85 | harmful (streaming only) |
+  | **very dark** | 8.83° / 6.01° | 0.49 / 0.72 | worst |
+  The fused estimator degrades the same way (shares MediaPipe landmarks and the off-screen veto).
+- Gating (`quality.py`): face luminance < 20 → too dark; whole-face sharpness < 0.009 → blurry;
+  both → `UNKNOWN` + on-screen hint; `UNKNOWN` ≥ 10 s → `tracking_unreliable` warning, so dimming
+  the light can't silently disable monitoring. Rejected signals: eye-region sharpness (drops with
+  lowered lids: flagged 100 % of keyboard/eyes-closed frames), iris jitter (falls with blur, rises
+  with harmless noise and with real eye movement).
+  | condition | confidently wrong, ungated → gated | UNKNOWN (gated) |
+  |---|---|---|
+  | very dark | 64 % → **2.2 %** / 35 % → **0.1 %** | 98 % / 96 % |
+  | blur | 38 % → **6.9 %** / 31 % → **10.2 %** | 86 % / 79 % |
+  | clean / harmless | unchanged | 0–0.7 % (backlit no-glasses 6.7 %) |
+  | JPEG q10 | unchanged (not detected) | 0 % |
+  Real recordings (6 sessions): gating fires on **0 %** of frames.
+- Open: JPEG/compression detection (only if frames are streamed), real dim-room validation,
+  review report for human reviewers, an intermittent test failure seen once (not reproduced in 9 runs).
+
 ### Phase 6: Hardening
 - Robustness: glasses, low light, backlight, skin tones, movement. Uncertainty gating → `UNKNOWN`.
 - Fairness & accessibility review; human-in-the-loop for all flags; on-device only.

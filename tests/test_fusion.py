@@ -125,3 +125,45 @@ def test_keyboard_band_limit():
         uv = project_to_screen(cfg.screen, eye, 0.0, pitch)
         z = classify_point(uv, pitch, eye, 0, 0, cfg.screen, cfg.zones)
         assert (z == want) if want else (z in (Zone.NEAR_OFF, Zone.FAR_OFF))
+
+
+def _textured_face(rng, size=200):
+    img = np.full((480, 640, 3), 120, np.uint8)
+    face = rng.integers(40, 220, (size // 4, size // 4), dtype=np.uint8)
+    import cv2
+
+    face = cv2.resize(face, (size, size), interpolation=cv2.INTER_NEAREST)  # edges at 4 px blocks
+    img[140:140 + size, 220:220 + size] = face[..., None]
+    lm = np.zeros((478, 3), np.float32)
+    lm[:, 0] = rng.uniform(222, 218 + size, 478)
+    lm[:, 1] = rng.uniform(142, 138 + size, 478)
+    lm[0, :2], lm[1, :2] = (220, 140), (220 + size - 1, 140 + size - 1)  # bbox corners
+    return img, lm
+
+
+def test_quality_flags_dark_and_blur_but_not_clean():
+    import cv2
+
+    from gaze_track.quality import QualityMonitor, measure
+
+    cfg = Config()
+    img, lm = _textured_face(np.random.default_rng(0))
+    qm = QualityMonitor(cfg.zones)
+    assert qm.classify(*measure(img, lm)).status == "ok"
+    dark = (img.astype(np.float32) * 0.1).astype(np.uint8)
+    blurred = cv2.GaussianBlur(img, (0, 0), 6)
+    assert qm.classify(*measure(dark, lm)).status == "too_dark"
+    assert qm.classify(*measure(blurred, lm)).status == "blurry"
+
+
+def test_unusable_frames_report_unknown_and_warn_after_timeout():
+    cfg = Config()
+    pipe = Pipeline(cfg, landmarker=False)
+    feats = GazeFeatures(head_yaw=0, head_pitch=0, head_roll=0, eye_h=0.0, eye_v=0.0, ear=0.3,
+                         origin_cm=np.array([0.0, 8.0, 50.0]), face_width_px=200)
+    evs = []
+    for i in range(int((cfg.events.unreliable_s + 1) * 30)):
+        r = pipe.step(feats, 1, i / 30, unusable=True)
+        evs += r.events
+    assert r.zone == Zone.UNKNOWN
+    assert [e.kind for e in evs if e.severity != "info"] == ["tracking_unreliable"]

@@ -450,11 +450,12 @@ def main(argv=None) -> None:
     c.add_argument("--session", default=None, help="replay a recorded session's frames instead of the camera")
     c.set_defaults(fn=cmd_bench)
 
-    from . import collect, evaluate
+    from . import collect, evaluate, robustness
     from .data import export, mpiifacegaze
 
     collect.add_parsers(sub)
     evaluate.add_parser(sub)
+    robustness.add_parser(sub)
     export.add_parser(sub)
     mpiifacegaze.add_parser(sub)
     from . import learn

@@ -55,6 +55,7 @@ class EventEngine:
         self._absent: _Episode | None = None
         self._multi: _Episode | None = None
         self._closed: _Episode | None = None
+        self._unknown: _Episode | None = None
         self._glances: deque[tuple[float, float, float]] = deque()  # (t_end, yaw, pitch)
         self._last_repeat_alert = -1e9
         self._turn: _Episode | None = None
@@ -79,6 +80,10 @@ class EventEngine:
         out += ev
         self._closed, ev = self._track_state(
             t, zone == Zone.EYES_CLOSED, self._closed, self.th.eyes_closed_s, "eyes_closed_long", "warning"
+        )
+        out += ev
+        self._unknown, ev = self._track_state(
+            t, zone == Zone.UNKNOWN, self._unknown, self.th.unreliable_s, "tracking_unreliable", "warning"
         )
         out += ev
         return out

@@ -32,6 +32,7 @@ class FrameResult:
     events: list[Event] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)
     landmarks: LandmarkResult | None = None
+    quality: object | None = None  # quality.Quality
 
     def row(self) -> dict:
         """Flat per-frame record for CSV logging (seeds Phase 1 datasets)."""
@@ -112,6 +113,9 @@ class Pipeline:
         self.cfg = cfg
         self.mapper = mapper or GazeMapper()
         self.fusion, self.learned = fusion, learned
+        from .quality import QualityMonitor
+
+        self.quality = QualityMonitor(cfg.zones)
         # Separate smoothing for the feature mapper's estimate used by the off-screen veto.
         self.fb_yaw = OneEuro(min_cutoff=1.5, beta=0.02)
         self.fb_pitch = OneEuro(min_cutoff=1.5, beta=0.02)
@@ -171,18 +175,20 @@ class Pipeline:
             tm["face_count"] = (time.perf_counter() - t_c) * 1e3
             if extra >= 2:  # the detector only ever raises the count to flag a second person
                 n_faces = extra
+        q = self.quality.update(frame, lm.faces[0].landmarks_px) if n_faces == 1 else None
         t_l = time.perf_counter()
-        gaze = self.learned_gaze(frame, lm, feats) if n_faces == 1 else None
+        gaze = self.learned_gaze(frame, lm, feats) if (n_faces == 1 and not (q and q.unusable)) else None
         if gaze is not None:
             tm["learned"] = (time.perf_counter() - t_l) * 1e3
-        r = self.step(feats, n_faces, t, gaze=gaze)
+        r = self.step(feats, n_faces, t, gaze=gaze, unusable=bool(q and q.unusable))
+        r.quality = q
         r.landmarks = lm
         r.timings_ms = tm | {"gaze+zone+events": r.timings_ms["gaze+zone+events"],
                              "total": (time.perf_counter() - t_start) * 1e3}
         return r
 
     def step(self, feats: GazeFeatures | None, n_faces: int, t: float,
-             gaze: tuple[float, float, np.ndarray] | None = None) -> FrameResult:
+             gaze: tuple[float, float, np.ndarray] | None = None, unusable: bool = False) -> FrameResult:
         """Everything after landmark extraction (also used to replay stored features offline).
         ``gaze`` = (yaw°, pitch°, origin_cm) from another estimator overrides the feature mapper."""
         t2 = time.perf_counter()
@@ -190,6 +196,8 @@ class Pipeline:
         yaw = pitch = None
         uv = None
         pre = gate_zone(self.cfg, feats, n_faces, self.mapper.stats.get("ear_baseline"), self.neutral_pitch)
+        if pre is None and unusable:  # image too dark / blurry: don't guess (see quality.py)
+            pre = Zone.UNKNOWN
         if pre is not None:
             raw = pre
         else:

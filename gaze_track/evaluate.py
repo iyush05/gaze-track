@@ -164,10 +164,15 @@ def _fit_session_calibration(cfg: Config, frames: list[dict]) -> GazeMapper:
 
 
 def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast: bool = False,
-                      model: str | None = None, fuse: bool = False) -> dict:
+                      model: str | None = None, fuse: bool = False, frames: list[dict] | None = None,
+                      preds: dict | None = None) -> dict:
+    """frames / preds: precomputed per-frame features and learned predictions (e.g. from degraded
+    images in the robustness test); computed from the session otherwise."""
     cfg = _session_cfg(base, s)
     t0 = time.perf_counter()
-    if fast:
+    if frames is not None:
+        pass
+    elif fast:
         frames = _stored(s)
     else:
         pipe = Pipeline(cfg)
@@ -182,9 +187,10 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
         mapper = _fit_session_calibration(cfg, frames)
         calib_src = "session"
     neutral = tuple(mapper.stats.get("neutral_head", [0.0, 0.0]))
-    preds, lcal, fused = None, None, None
+    lcal, fused = None, None
     if model:
-        preds = _learned_predictions(s, model)
+        if preds is None:
+            preds = _learned_predictions(s, model)
         if fuse:
             fused = _fit_fusion(cfg, frames, mapper, preds)
         else:
@@ -197,6 +203,8 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
         if r["segment"] not in ("screen", "off"):
             continue
         pre = gate_zone(cfg, ft, f["n_faces"], mapper.stats.get("ear_baseline"), neutral[1])
+        if pre is None and f.get("unusable"):  # image-quality gate (robustness test / live)
+            pre = Zone.UNKNOWN
         uv = None
         origin = ft.origin_cm if ft is not None else None
         if pre is None and fused is not None:
@@ -232,6 +240,10 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
         y_pred.append(zone)
         trial_votes.setdefault(int(r["trial_id"]), (r["zone_gt"], r["task"], []))[2].append(zone)
 
+    yt, yp = np.array(y_true), np.array(y_pred)
+    unknown_frac = float(np.mean(yp == "UNKNOWN")) if len(yp) else 0.0
+    # Definite (non-UNKNOWN) predictions that are wrong: what quality gating should reduce.
+    confident_wrong = float(np.mean((yp != "UNKNOWN") & (yp != yt))) if len(yp) else 0.0
     edge_flag = np.array(edge_flag, bool)
     gaze_err_a, cm_err_a = np.array(gaze_err), np.array(cm_err)
     present = [l for l in ZONE_LABELS if l in set(y_true) | set(y_pred)]
@@ -268,6 +280,8 @@ def evaluate_protocol(s: Session, base: Config, profile: str | None = None, fast
             "pitch_mae_deg": float(np.mean(np.abs(pitch_err))) if pitch_err else None,
         },
         "zones_frame": zone_report(y_true, y_pred, present),
+        "unknown_frac": unknown_frac,
+        "confident_wrong_frac": confident_wrong,
         "off_screen_binary": binary_report([t in OFF for t in y_true], [p in OFF for p in y_pred]),
         "trials": {"accuracy": float(np.mean([t["correct"] for t in trial_rows])) if trial_rows else None,
                    "by_task": {k: f"{sum(v)}/{len(v)}" for k, v in sorted(by_task.items())},

@@ -66,6 +66,10 @@ class ZoneThresholds:
     # eyes → treated as off-screen. s01: phone in lap +9.1/+9.6°, keyboard/typing −1.4…−3.0°.
     look_down_head_pitch_deg: float = 6.0
     min_dwell_s: float = 0.15  # hysteresis: a zone must persist this long before switching
+    # Image quality gating (see quality.py for the stress-test numbers behind these).
+    too_dark_lum: float = 20.0  # face luminance below this → UNKNOWN (very dark: 12, dim: 27, clean: 90)
+    dim_lum: float = 35.0  # below this → "dim" warning on screen only (accuracy drops ~0.8°)
+    min_sharpness: float = 0.009  # face sharpness below this → UNKNOWN (blur ≤ 0.006, low-res ≥ 0.016, clean p1 ≥ 0.0135)
     hysteresis_cm: float = 1.2  # spatial hysteresis: extra distance needed to leave current zone
 
 
@@ -91,6 +95,9 @@ class EventThresholds:
     face_absent_s: float = 2.0
     multi_face_s: float = 0.5
     eyes_closed_s: float = 2.0
+    # UNKNOWN (bad image / unusable face) for this long → warning, so a reviewer knows the system
+    # could not judge (otherwise dimming the light would silently disable monitoring).
+    unreliable_s: float = 10.0
 
 
 @dataclass

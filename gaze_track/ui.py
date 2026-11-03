@@ -84,8 +84,15 @@ def draw_overlay(frame: np.ndarray, cfg: Config, r: FrameResult, recent_events: 
         lines.append(f"screen u {r.point_uv[0]:+6.1f} v {r.point_uv[1]:+6.1f} cm")
     if not calibrated:
         lines.append("UNCALIBRATED - run: python -m gaze_track calibrate")
+    q = getattr(r, "quality", None)
+    if q is not None and q.status != "ok":
+        msg = {"too_dark": "TOO DARK - tracking paused: add light in front of you",
+               "blurry": "IMAGE BLURRY - tracking paused: clean the camera / hold still",
+               "dim": "Low light - accuracy reduced"}[q.status]
+        lines.append(f"{msg}  (face lum {q.face_lum:.0f}, sharpness {q.sharpness:.3f})")
     for i, s in enumerate(lines):
-        _text(img, s, (12, 60 + 20 * i), 0.5, (0, 200, 255) if s.startswith("UNCAL") else (255, 255, 255))
+        warn = s.startswith(("UNCAL", "TOO DARK", "IMAGE BLURRY", "Low light"))
+        _text(img, s, (12, 60 + 20 * i), 0.5, (0, 200, 255) if warn else (255, 255, 255))
 
     for i, e in enumerate(recent_events[-5:][::-1]):
         _text(img, f"{e.kind} ({e.duration_s:.1f}s)", (12, img.shape[0] - 14 - 20 * i), 0.5, SEVERITY_COLORS[e.severity])
